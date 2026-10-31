@@ -1,0 +1,91 @@
+name: Build GKI Kernel (X6711)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Compile GKI 5.10.198 (Droidspaces + SUSFS)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout Builder Repository
+        uses: actions/checkout@v4
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison build-essential cpio curl flex git \
+            kmod libelf-dev libssl-dev libncurses-dev lz4 \
+            python3 python-is-python3 rsync tar wget xz-utils zip zstd
+
+      - name: Download AOSP Clang Toolchain (r416183b)
+        run: |
+          mkdir -p $HOME/toolchain
+          curl -LSs "https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r416183b.tar.gz" | tar -xz -C $HOME/toolchain
+          sudo ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5 || true
+
+      - name: Clone Google AOSP Common Kernel 5.10
+        run: |
+          git clone --depth 100 https://android.googlesource.com/kernel/common -b android12-5.10 kernel
+          cd kernel
+          git checkout 85b72e945a8d29c359a2f0018e9426d346a7bde4
+          echo "Checked out exact OEM matching commit: $(git rev-parse HEAD)"
+
+      - name: Apply Droidspaces & SUSFS Patches
+        run: |
+          # 1. Clone susfs4ksu (gki-android12-5.10)
+          git clone --depth 1 -b gki-android12-5.10 https://gitlab.com/simonpunk/susfs4ksu.git susfs
+          cp susfs/kernel_patches/fs/* kernel/fs/
+          cp susfs/kernel_patches/include/linux/* kernel/include/linux/
+
+          cd kernel
+          # Apply SUSFS patch
+          patch -p1 < ../susfs/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch
+
+          # Apply Droidspaces kABI patches (slots 1, 2, 3)
+          patch -p1 < ../patches/001.GKI-below-6.12-fix_sysvipc_kabi_1_2_3.patch
+          patch -p1 < ../patches/002.5.10_or_lower_use_android_abi_padding_for_posix_mqueue.patch
+
+          # Append all agreed defconfig options
+          cat ../gki_defconfig.fragment >> arch/arm64/configs/gki_defconfig
+          echo "Patches applied successfully."
+
+      - name: Build Kernel (Image.gz)
+        run: |
+          export PATH="$HOME/toolchain/clang-r416183b/bin:$PATH"
+          cd kernel
+
+          make -j$(nproc) \
+            ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            gki_defconfig
+
+          make -j$(nproc) \
+            ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            Image.gz
+
+          ls -lh arch/arm64/boot/Image.gz
+
+      - name: Package AnyKernel3 Zip
+        run: |
+          cp kernel/arch/arm64/boot/Image.gz anykernel/Image.gz
+          cd anykernel
+          zip -r9 ../AnyKernel3-X6711-GKI-5.10.198-Droidspaces-SUSFS.zip * -x .git README.md
+          cd ..
+          ls -lh AnyKernel3-X6711-GKI-5.10.198-Droidspaces-SUSFS.zip
+
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnyKernel3-X6711-GKI-5.10.198
+          path: AnyKernel3-X6711-GKI-5.10.198-Droidspaces-SUSFS.zip

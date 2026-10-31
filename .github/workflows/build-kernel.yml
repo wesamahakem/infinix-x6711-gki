@@ -53,38 +53,8 @@ jobs:
           patch -p1 < ../patches/001.GKI-below-6.12-fix_sysvipc_kabi_1_2_3.patch
           patch -p1 < ../patches/002.5.10_or_lower_use_android_abi_padding_for_posix_mqueue.patch
 
-          # Apply defconfig options in-place
-          python3 -c "
-configs = open('../gki_defconfig.fragment').read().splitlines()
-with open('arch/arm64/configs/gki_defconfig', 'r') as f:
-    lines = f.readlines()
-config_map = {}
-for c in configs:
-    c = c.strip()
-    if c and not c.startswith('#') and '=' in c:
-        k, v = c.split('=', 1)
-        config_map[k] = c
-
-new_lines = []
-found = set()
-for line in lines:
-    replaced = False
-    for k, full in config_map.items():
-        if line.strip() == f'# {k} is not set' or line.strip().startswith(f'{k}='):
-            new_lines.append(full + '\n')
-            found.add(k)
-            replaced = True
-            break
-    if not replaced:
-        new_lines.append(line)
-
-for k, full in config_map.items():
-    if k not in found:
-        new_lines.append(full + '\n')
-
-with open('arch/arm64/configs/gki_defconfig', 'w') as f:
-    f.writelines(new_lines)
-"
+          # Apply defconfig options in-place using our python script
+          python3 ../scripts/apply_defconfig.py arch/arm64/configs/gki_defconfig ../gki_defconfig.fragment
           echo "Patches applied successfully."
 
       - name: Build Kernel (Image.gz)

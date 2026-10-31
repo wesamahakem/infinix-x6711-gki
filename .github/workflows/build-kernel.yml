@@ -15,20 +15,39 @@ jobs:
       - name: Checkout Builder Repository
         uses: actions/checkout@v4
 
+      - name: Setup System & Free Disk/Memory
+        run: |
+          echo "Initial disk space:"
+          df -h
+
+          # Set up 6 GB swap to prevent OOM during vmlinux linking
+          sudo fallocate -l 6G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=6144
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             bc bison build-essential cpio curl flex git \
             gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
-            kmod libelf-dev libssl-dev libncurses-dev lz4 \
-            python3 python-is-python3 rsync tar wget xz-utils zip zstd
+            kmod libelf-dev libssl-dev libncurses-dev pahole \
+            python3 python-is-python3 rsync tar wget xz-utils zip zstd \
+            device-tree-compiler zlib1g-dev libyaml-dev pkg-config
 
       - name: Download AOSP Clang Toolchain (r416183b)
         run: |
-          mkdir -p $HOME/toolchain/clang-r416183b
-          curl -LSs "https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r416183b.tar.gz" | tar -xz -C $HOME/toolchain/clang-r416183b
-          sudo ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5 || true
+          mkdir -p $HOME/toolchains/clang-r416183b
+          curl -LSs "https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r416183b.tar.gz" | tar -xz -C $HOME/toolchains/clang-r416183b
+          
+          # Setup libtinfo compat symlink for clang
+          mkdir -p $HOME/toolchains/.compat
+          tinfo="$(ldconfig -p | awk '/libtinfo\.so\.6/ && !seen++ {print $NF}')"
+          if [ -n "${tinfo}" ]; then
+            ln -sf "${tinfo}" "$HOME/toolchains/.compat/libtinfo.so.5"
+          fi
 
       - name: Clone Google AOSP Common Kernel 5.10
         run: |
@@ -58,25 +77,30 @@ jobs:
           python3 ../scripts/apply_defconfig.py arch/arm64/configs/gki_defconfig ../gki_defconfig.fragment
           echo "Patches applied successfully."
 
-      - name: Build Kernel (Image & Image.gz)
+      - name: Build Kernel (Image.gz)
         run: |
-          export PATH="$HOME/toolchain/clang-r416183b/bin:$PATH"
+          export PATH="$HOME/toolchains/clang-r416183b/bin:$PATH"
+          export LD_LIBRARY_PATH="$HOME/toolchains/.compat:$HOME/toolchains/clang-r416183b/lib:$HOME/toolchains/clang-r416183b/lib64:${LD_LIBRARY_PATH:-}"
+
           cd kernel
 
-          make -j$(nproc) \
-            ARCH=arm64 \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            gki_defconfig
+          BUILD_ARGS=(
+            -j$(nproc)
+            ARCH=arm64
+            LLVM=1
+            LLVM_IAS=1
+            CROSS_COMPILE=aarch64-linux-gnu-
+            HOSTCC=gcc
+            HOSTCXX=g++
+          )
 
-          make -j$(nproc) \
-            ARCH=arm64 \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            Image Image.gz
+          echo "Configuring gki_defconfig..."
+          make "${BUILD_ARGS[@]}" gki_defconfig
 
+          echo "Compiling Image.gz..."
+          make "${BUILD_ARGS[@]}" Image.gz
+
+          echo "Verifying compiled kernel artifacts:"
           ls -lh arch/arm64/boot/Image arch/arm64/boot/Image.gz
 
       - name: Package AnyKernel3 Zip

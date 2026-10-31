@@ -15,17 +15,13 @@ jobs:
       - name: Checkout Builder Repository
         uses: actions/checkout@v4
 
-      - name: Setup System & Free Disk/Memory
+      - name: Setup System & Inspect Resources
         run: |
-          echo "Initial disk space:"
+          echo "Disk space:"
           df -h
-
-          # Set up 6 GB swap to prevent OOM during vmlinux linking
-          sudo fallocate -l 6G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=6144
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          echo "Memory and Swap:"
           free -h
+          swapon --show
 
       - name: Install Build Dependencies
         run: |

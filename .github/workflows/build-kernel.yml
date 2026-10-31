@@ -31,9 +31,11 @@ jobs:
 
       - name: Clone Google AOSP Common Kernel 5.10
         run: |
-          git clone --depth 100 https://android.googlesource.com/kernel/common -b android12-5.10 kernel
-          cd kernel
-          git checkout 85b72e945a8d29c359a2f0018e9426d346a7bde4
+          mkdir kernel && cd kernel
+          git init
+          git remote add origin https://android.googlesource.com/kernel/common
+          git fetch --depth 1 origin 85b72e945a8d29c359a2f0018e9426d346a7bde4
+          git checkout FETCH_HEAD
           echo "Checked out exact OEM matching commit: $(git rev-parse HEAD)"
 
       - name: Apply Droidspaces & SUSFS Patches
@@ -51,8 +53,38 @@ jobs:
           patch -p1 < ../patches/001.GKI-below-6.12-fix_sysvipc_kabi_1_2_3.patch
           patch -p1 < ../patches/002.5.10_or_lower_use_android_abi_padding_for_posix_mqueue.patch
 
-          # Append all agreed defconfig options
-          cat ../gki_defconfig.fragment >> arch/arm64/configs/gki_defconfig
+          # Apply defconfig options in-place
+          python3 -c "
+configs = open('../gki_defconfig.fragment').read().splitlines()
+with open('arch/arm64/configs/gki_defconfig', 'r') as f:
+    lines = f.readlines()
+config_map = {}
+for c in configs:
+    c = c.strip()
+    if c and not c.startswith('#') and '=' in c:
+        k, v = c.split('=', 1)
+        config_map[k] = c
+
+new_lines = []
+found = set()
+for line in lines:
+    replaced = False
+    for k, full in config_map.items():
+        if line.strip() == f'# {k} is not set' or line.strip().startswith(f'{k}='):
+            new_lines.append(full + '\n')
+            found.add(k)
+            replaced = True
+            break
+    if not replaced:
+        new_lines.append(line)
+
+for k, full in config_map.items():
+    if k not in found:
+        new_lines.append(full + '\n')
+
+with open('arch/arm64/configs/gki_defconfig', 'w') as f:
+    f.writelines(new_lines)
+"
           echo "Patches applied successfully."
 
       - name: Build Kernel (Image.gz)

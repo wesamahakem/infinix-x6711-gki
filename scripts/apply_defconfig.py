@@ -14,9 +14,20 @@ def main():
     config_map = {}
     for line in fragment_lines:
         line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
+        if not line:
+            continue
+        if line.startswith("#") and line.endswith("is not set"):
+            # e.g. # CONFIG_LTO_CLANG_FULL is not set
+            parts = line.split()
+            if len(parts) >= 3:
+                key = parts[1]
+                config_map[key] = line
+        elif not line.startswith("#") and "=" in line:
             key, val = line.split("=", 1)
-            config_map[key] = line
+            if val == "n":
+                config_map[key] = f"# {key} is not set"
+            else:
+                config_map[key] = line
 
     with open(defconfig_path, "r") as f:
         orig_lines = f.readlines()

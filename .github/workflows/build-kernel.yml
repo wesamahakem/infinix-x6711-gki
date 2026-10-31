@@ -93,8 +93,11 @@ jobs:
           echo "Configuring gki_defconfig..."
           make "${BUILD_ARGS[@]}" gki_defconfig
 
+          echo "Resolving config options with olddefconfig..."
+          make "${BUILD_ARGS[@]}" olddefconfig </dev/null
+
           echo "Compiling Image.gz..."
-          make "${BUILD_ARGS[@]}" Image.gz
+          make "${BUILD_ARGS[@]}" Image.gz </dev/null
 
           echo "Verifying compiled kernel artifacts:"
           ls -lh arch/arm64/boot/Image arch/arm64/boot/Image.gz

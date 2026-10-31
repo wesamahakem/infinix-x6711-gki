@@ -20,13 +20,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             bc bison build-essential cpio curl flex git \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
             kmod libelf-dev libssl-dev libncurses-dev lz4 \
             python3 python-is-python3 rsync tar wget xz-utils zip zstd
 
       - name: Download AOSP Clang Toolchain (r416183b)
         run: |
-          mkdir -p $HOME/toolchain
-          curl -LSs "https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r416183b.tar.gz" | tar -xz -C $HOME/toolchain
+          mkdir -p $HOME/toolchain/clang-r416183b
+          curl -LSs "https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r416183b.tar.gz" | tar -xz -C $HOME/toolchain/clang-r416183b
           sudo ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5 || true
 
       - name: Clone Google AOSP Common Kernel 5.10
@@ -49,15 +50,15 @@ jobs:
           # Apply SUSFS patch
           patch -p1 < ../susfs/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch
 
-          # Apply Droidspaces kABI patches (slots 1, 2, 3)
-          patch -p1 < ../patches/001.GKI-below-6.12-fix_sysvipc_kabi_1_2_3.patch
+          # Apply Droidspaces kABI patches (slots 6, 7, 8)
+          patch -p1 < ../patches/001.GKI-below-6.12-fix_sysvipc_kabi_6_7_8.patch
           patch -p1 < ../patches/002.5.10_or_lower_use_android_abi_padding_for_posix_mqueue.patch
 
           # Apply defconfig options in-place using our python script
           python3 ../scripts/apply_defconfig.py arch/arm64/configs/gki_defconfig ../gki_defconfig.fragment
           echo "Patches applied successfully."
 
-      - name: Build Kernel (Image.gz)
+      - name: Build Kernel (Image & Image.gz)
         run: |
           export PATH="$HOME/toolchain/clang-r416183b/bin:$PATH"
           cd kernel
@@ -74,9 +75,9 @@ jobs:
             LLVM=1 \
             LLVM_IAS=1 \
             CROSS_COMPILE=aarch64-linux-gnu- \
-            Image.gz
+            Image Image.gz
 
-          ls -lh arch/arm64/boot/Image.gz
+          ls -lh arch/arm64/boot/Image arch/arm64/boot/Image.gz
 
       - name: Package AnyKernel3 Zip
         run: |
@@ -86,8 +87,11 @@ jobs:
           cd ..
           ls -lh AnyKernel3-X6711-GKI-5.10.198-Droidspaces-SUSFS.zip
 
-      - name: Upload Kernel Artifact
+      - name: Upload Kernel Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: AnyKernel3-X6711-GKI-5.10.198
-          path: AnyKernel3-X6711-GKI-5.10.198-Droidspaces-SUSFS.zip
+          name: X6711-GKI-5.10.198-Droidspaces-SUSFS
+          path: |
+            AnyKernel3-X6711-GKI-5.10.198-Droidspaces-SUSFS.zip
+            kernel/arch/arm64/boot/Image.gz
+            kernel/arch/arm64/boot/Image
